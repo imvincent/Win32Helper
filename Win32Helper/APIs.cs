@@ -1,6 +1,11 @@
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace Win32Helper
 {
@@ -275,9 +280,9 @@ namespace Win32Helper
             return (lParam >> 16);
         }
 
-        public static Point GetPointFromLPARAM(int lParam)
+        public static System.Windows.Point GetPointFromLPARAM(int lParam)
         {
-            return new Point(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            return new System.Windows.Point(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
 
         public static int LOW_ORDER(int param)
@@ -675,6 +680,264 @@ namespace Win32Helper
             {
                 Console.WriteLine(arg);
             }
+        }
+
+        #endregion
+
+        #region window, state related
+
+        public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+
+        [DllImport("user32.dll")]
+        public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+        public static void BringToBackground(Window win)
+        {
+            SetWindowPos(new WindowInteropHelper(win).Handle, HWND_BOTTOM, 0, 0, 0, 0, 0x13);
+        }
+
+        //[DllImport("user32.dll", SetLastError = true)]
+        //public static extern bool BringWindowToTop(IntPtr hWnd);
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool BringWindowToTop(HandleRef hWnd);
+        //[DllImport("user32.dll")]
+        //public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+        //[DllImport("gdi32.dll")]
+        //public static extern bool DeleteObject(IntPtr hObject);
+        public static void ForceForegroundWindow(IntPtr hWnd)
+        {
+            uint windowThreadProcessId = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
+            uint currentThreadId = (uint)GetCurrentThreadId();
+            if (windowThreadProcessId != currentThreadId)
+            {
+                AttachThreadInput(windowThreadProcessId, currentThreadId, true);
+                BringWindowToTop(hWnd);
+                ShowWindow(hWnd, 5);
+                AttachThreadInput(windowThreadProcessId, currentThreadId, false);
+            }
+            else
+            {
+                BringWindowToTop(hWnd);
+                ShowWindow(hWnd, 5);
+            }
+        }
+
+        public static bool GetCurrentProcessOnFocus()
+        {
+            try
+            {
+                ForceForegroundWindow(Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName)[0].MainWindowHandle);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        //[DllImport("kernel32.dll")]
+        //public static extern uint GetCurrentThreadId();
+        //[DllImport("user32.dll")]
+        //public static extern IntPtr GetDesktopWindow();
+        public static string GetForegroundProcessName()
+        {
+            uint lpdwProcessId = 0;
+            GetWindowThreadProcessId(GetForegroundWindow(), out lpdwProcessId);
+            return Process.GetProcessById((int)lpdwProcessId).ProcessName;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
+        public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindowLong(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern int GetWindowThreadProcessId(IntPtr handle, out int processId);
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr ProcessId);
+        public static void HideFromTaskView(Window window)
+        {
+            try
+            {
+                WindowInteropHelper helper = new WindowInteropHelper(window);
+                int windowLong = (int)GetWindowLong(helper.Handle, -20);
+                windowLong |= 0x80;
+                SetWindowLong(helper.Handle, -20, (IntPtr)windowLong);
+            }
+            catch (Exception exception)
+            {
+                //log and throw.
+            }
+        }
+
+        [DllImport("wininet.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool InternetSetOption(int hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+        private static int IntPtrToInt32(IntPtr intPtr)
+        {
+            return (int)intPtr.ToInt64();
+        }
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
+        private static extern int IntSetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
+        private static extern IntPtr IntSetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        public static bool IsForeground()
+        {
+            bool flag = false;
+            try
+            {
+                int num;
+                GetWindowThreadProcessId(GetForegroundWindow(), out num);
+                int id = Process.GetCurrentProcess().Id;
+                flag = num == id;
+            }
+            catch
+            {
+            }
+            return flag;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+        //[DllImport("user32.dll")]
+        //public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+        [return: MarshalAs(UnmanagedType.Bool)]
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool PostMessage(HandleRef hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("User32", CallingConvention = CallingConvention.StdCall, SetLastError = true)]
+        public static extern IntPtr RegisterPowerSettingNotification(IntPtr hRecipient, ref Guid PowerSettingGuid, int Flags);
+        [DllImport("User32.dll")]
+        public static extern int SetForegroundWindow(int hWnd);
+        [DllImport("kernel32.dll")]
+        public static extern void SetLastError(int dwErrorCode);
+        public static IntPtr SetWindowLong(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        {
+            int error = 0;
+            IntPtr zero = IntPtr.Zero;
+            SetLastError(0);
+            if (IntPtr.Size == 4)
+            {
+                int num2 = IntSetWindowLong(hWnd, nIndex, IntPtrToInt32(dwNewLong));
+                error = Marshal.GetLastWin32Error();
+                zero = new IntPtr(num2);
+            }
+            else
+            {
+                zero = IntSetWindowLongPtr(hWnd, nIndex, dwNewLong);
+                error = Marshal.GetLastWin32Error();
+            }
+            if ((zero == IntPtr.Zero) && (error != 0))
+            {
+                throw new Win32Exception(error);
+            }
+            return zero;
+        }
+
+        //[DllImport("user32.dll")]
+        //public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, uint nCmdShow);
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+        public static unsafe void SuppressWininetBehavior()
+        {
+            int num = 0;
+            int* numPtr = &num;
+            if (!InternetSetOption(0, 0x51, new IntPtr((void*)numPtr), 4))
+            {
+                MessageBox.Show("Something went wrong !>?");
+            }
+        }
+
+        [DllImport("user32.dll")]
+        public static extern void SwitchToThisWindow(int hWnd, bool fAltTab);
+
+        public static class CursorInfo
+        {
+            [DllImport("user32.dll")]
+            private static extern void GetCursorPos(out POINT pt);
+            public static System.Windows.Point GetNowPosition(Visual v)
+            {
+                POINT point;
+                point.X = -2147483648;
+                point.Y = -2147483648;
+                try
+                {
+                    GetCursorPos(out point);
+                    HwndSource source = PresentationSource.FromVisual(v) as HwndSource;
+                    ScreenToClient(source.Handle, ref point);
+                }
+                catch
+                {
+                }
+                return new System.Windows.Point((double)point.X, (double)point.Y);
+            }
+
+            public static System.Windows.Point GetNowPositionScr(Visual v)
+            {
+                POINT point;
+                GetCursorPos(out point);
+                return new System.Windows.Point((double)point.X, (double)point.Y);
+            }
+
+            [DllImport("user32.dll")]
+            private static extern int ScreenToClient(IntPtr hwnd, ref POINT pt);
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct POINT
+            {
+                public int X;
+                public int Y;
+            }
+        }
+
+        public enum ExtendedWindowStyles
+        {
+            WS_EX_TOOLWINDOW = 0x80
+        }
+
+        public enum GetWindowLongFields
+        {
+            GWL_EXSTYLE = -20
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+            public POINT(int x, int y)
+            {
+                this.X = x;
+                this.Y = y;
+            }
+
+            public POINT(System.Windows.Point pt)
+            {
+                this.X = Convert.ToInt32(pt.X);
+                this.Y = Convert.ToInt32(pt.Y);
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POWERBROADCAST_SETTING
+        {
+            public Guid PowerSetting;
+            public uint DataLength;
+            public byte Data;
+        }
+
+        public class PowerSettingGUIDs
+        {
+            public static int ConsoleDisplayStateDimmed = 2;
+            public static int ConsoleDisplayStateOff = 0;
+            public static int ConsoleDisplayStateOn = 1;
+            public static Guid GUID_CONSOLE_DISPLAY_STATE = new Guid("6fe69556-704a-47a0-8f24-c28d936fda47");
+            public static Guid GUID_LIDSWITCH_STATE_CHANGE = new Guid(0xba3e0f4d, 0xb817, 0x4094, 0xa2, 0xd1, 0xd5, 0x63, 0x79, 230, 160, 0xf3);
+            public static Guid GUID_MONITOR_POWER_ON = new Guid("02731015-4510-4526-99e6-e5a17ebd1aea");
+            public static Guid GUID_SESSION_DISPLAY_STATUS = new Guid("2B84C20E-AD23-4ddf-93DB-05FFBD7EFCA5");
+            public static int MonitorPowerOnIsOff = 0;
+            public static int MonitorPowerOnIsOn = 1;
         }
 
         #endregion
